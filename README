@@ -1,6 +1,6 @@
 This is a mirror of http://www.vim.org/scripts/script.php?script_id=3619
 
-Buffergator is a plugin for listing, navigating between, and selecting buffers
+Buffergator is a plugin for listing, navigating/switching between, and selecting buffers
 to edit. Upon invocation, a "catalog" of listed buffers are displayed in a
 separate new window split (vertical or horizontal, based on user options;
 default = vertical).  From this "buffer catalog", a buffer can be selected and

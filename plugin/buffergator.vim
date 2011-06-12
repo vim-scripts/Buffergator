@@ -520,23 +520,8 @@ function! s:NewCatalogViewer()
         else
             " create viewport
             let self.split_mode = s:_get_split_mode()
+            call self.expand_screen()
             execute("silent keepalt keepjumps " . self.split_mode . " " . self.bufnum)
-            if has("gui_running") && g:buffergator_autoexpand_on_split && g:buffergator_split_size
-                if g:buffergator_viewport_split_policy =~ '[RL]'
-                    let self.pre_expand_columns = &columns
-                    let &columns += g:buffergator_split_size
-                    let self.columns_expanded = &columns - self.pre_expand_columns
-                else
-                    let self.columns_expanded = 0
-                endif
-                if g:buffergator_viewport_split_policy =~ '[TB]'
-                    let self.pre_expand_lines = &lines
-                    let &lines += g:buffergator_split_size
-                    let self.lines_expanded = &lines - self.pre_expand_lines
-                else
-                    let self.lines_expanded = 0
-                endif
-            endif
             if g:buffergator_viewport_split_policy =~ '[RrLl]' && g:buffergator_split_size
                 execute("vertical resize " . g:buffergator_split_size)
             elseif g:buffergator_viewport_split_policy =~ '[TtBb]' && g:buffergator_split_size
@@ -630,42 +615,44 @@ function! s:NewCatalogViewer()
         endfor
 
         """" Catalog management
-        noremap <buffer> <silent> s       :call b:buffergator_catalog_viewer.cycle_sort_regime()<CR>
-        noremap <buffer> <silent> i       :call b:buffergator_catalog_viewer.cycle_display_regime()<CR>
-        noremap <buffer> <silent> u       :call b:buffergator_catalog_viewer.rebuild_catalog()<CR>
-        noremap <buffer> <silent> q       :call b:buffergator_catalog_viewer.close()<CR>
-        noremap <buffer> <silent> d       :call b:buffergator_catalog_viewer.delete_target(0, 0)<CR>
-        noremap <buffer> <silent> D       :call b:buffergator_catalog_viewer.delete_target(0, 1)<CR>
-        noremap <buffer> <silent> x       :call b:buffergator_catalog_viewer.delete_target(1, 0)<CR>
-        noremap <buffer> <silent> X       :call b:buffergator_catalog_viewer.delete_target(1, 1)<CR>
+        noremap <buffer> <silent> s           :call b:buffergator_catalog_viewer.cycle_sort_regime()<CR>
+        noremap <buffer> <silent> i           :call b:buffergator_catalog_viewer.cycle_display_regime()<CR>
+        noremap <buffer> <silent> u           :call b:buffergator_catalog_viewer.rebuild_catalog()<CR>
+        noremap <buffer> <silent> q           :call b:buffergator_catalog_viewer.close()<CR>
+        noremap <buffer> <silent> d           :call b:buffergator_catalog_viewer.delete_target(0, 0)<CR>
+        noremap <buffer> <silent> D           :call b:buffergator_catalog_viewer.delete_target(0, 1)<CR>
+        noremap <buffer> <silent> x           :call b:buffergator_catalog_viewer.delete_target(1, 0)<CR>
+        noremap <buffer> <silent> X           :call b:buffergator_catalog_viewer.delete_target(1, 1)<CR>
 
         " open target
         noremap <buffer> <silent> <CR>  :call b:buffergator_catalog_viewer.visit_target(!g:buffergator_autodismiss_on_select, 0, "")<CR>
 
         " show target line in other window, keeping catalog open and in focus
-        noremap <buffer> <silent> p           :call b:buffergator_catalog_viewer.visit_target(1, 1, "")<CR>
+        noremap <buffer> <silent> .           :call b:buffergator_catalog_viewer.visit_target(1, 1, "")<CR>
+        noremap <buffer> <silent> po          :call b:buffergator_catalog_viewer.visit_target(1, 1, "")<CR>
+        noremap <buffer> <silent> ps          :call b:buffergator_catalog_viewer.visit_target(1, 1, "sb")<CR>
+        noremap <buffer> <silent> pv          :call b:buffergator_catalog_viewer.visit_target(1, 1, "vert sb")<CR>
+        noremap <buffer> <silent> pt          :call b:buffergator_catalog_viewer.visit_target(1, 1, "tab sb")<CR>
         noremap <buffer> <silent> <SPACE>     :<C-U>call b:buffergator_catalog_viewer.goto_index_entry("n", 1, 1)<CR>
         noremap <buffer> <silent> <C-SPACE>   :<C-U>call b:buffergator_catalog_viewer.goto_index_entry("p", 1, 1)<CR>
         noremap <buffer> <silent> <C-@>       :<C-U>call b:buffergator_catalog_viewer.goto_index_entry("p", 1, 1)<CR>
         noremap <buffer> <silent> <C-N>       :<C-U>call b:buffergator_catalog_viewer.goto_index_entry("n", 1, 1)<CR>
         noremap <buffer> <silent> <C-P>       :<C-U>call b:buffergator_catalog_viewer.goto_index_entry("p", 1, 1)<CR>
 
-        """" Movement that moves to the current search target
-
         " go to target line in other window, keeping catalog open
-        noremap <buffer> <silent> o     :call b:buffergator_catalog_viewer.visit_target(1, 0, "")<CR>
-        noremap <buffer> <silent> ws    :call b:buffergator_catalog_viewer.visit_target(1, 0, "sb")<CR>
-        noremap <buffer> <silent> wv    :call b:buffergator_catalog_viewer.visit_target(1, 0, "vert sb")<CR>
-        noremap <buffer> <silent> t     :call b:buffergator_catalog_viewer.visit_target(1, 0, "tab sb")<CR>
+        noremap <buffer> <silent> o           :call b:buffergator_catalog_viewer.visit_target(1, 0, "")<CR>
+        noremap <buffer> <silent> ws          :call b:buffergator_catalog_viewer.visit_target(1, 0, "sb")<CR>
+        noremap <buffer> <silent> wv          :call b:buffergator_catalog_viewer.visit_target(1, 0, "vert sb")<CR>
+        noremap <buffer> <silent> t           :call b:buffergator_catalog_viewer.visit_target(1, 0, "tab sb")<CR>
 
         " open target line in other window, closing catalog
-        noremap <buffer> <silent> O     :call b:buffergator_catalog_viewer.visit_target(0, 0, "")<CR>
-        noremap <buffer> <silent> wS    :call b:buffergator_catalog_viewer.visit_target(0, 0, "sb")<CR>
-        noremap <buffer> <silent> wV    :call b:buffergator_catalog_viewer.visit_target(0, 0, "vert sb")<CR>
-        noremap <buffer> <silent> T     :call b:buffergator_catalog_viewer.visit_target(0, 0, "tab sb")<CR>
+        noremap <buffer> <silent> O           :call b:buffergator_catalog_viewer.visit_target(0, 0, "")<CR>
+        noremap <buffer> <silent> wS          :call b:buffergator_catalog_viewer.visit_target(0, 0, "sb")<CR>
+        noremap <buffer> <silent> wV          :call b:buffergator_catalog_viewer.visit_target(0, 0, "vert sb")<CR>
+        noremap <buffer> <silent> T           :call b:buffergator_catalog_viewer.visit_target(0, 0, "tab sb")<CR>
 
         " other
-        noremap <buffer> <silent> A     :call b:buffergator_catalog_viewer.toggle_zoom()<CR>
+        noremap <buffer> <silent> A           :call b:buffergator_catalog_viewer.toggle_zoom()<CR>
 
     endfunction
 
@@ -746,29 +733,30 @@ function! s:NewCatalogViewer()
         if self.bufnum < 0 || !bufexists(self.bufnum)
             return
         endif
-        " let l:bfwn = bufwinnr(self.bufnum)
-        " if l:bfwn >= 0
-        "     let self.preclose_width = winwidth(l:bfwn)
-        "     let self.preclose_height = winheight(l:bfwn)
-        " else
-        "     let self.preclose_width = 0
-        "     let self.preclose_height = 0
-        " endif
+        call self.contract_screen()
         execute("bwipe " . self.bufnum)
-        call self.cleanup()
     endfunction
 
-    " Clean up windows
-    function! l:catalog_viewer.cleanup() dict
-        " if has("gui_running") && g:buffergator_autoexpand_on_split && g:buffergator_split_size
-        "     if self.is_zoomed
-        "         let self.preclose_width = self.columns_expanded
-        "         let self.preclose_height = self.lines_expanded
-        "     elseif (self.columns_expanded != self.preclose_width)
-        "                 \ || (self.lines_expanded != self.preclose_height)
-        "         " window size has been customized
-        "         return
-        "     endif
+    function! l:catalog_viewer.expand_screen() dict
+        if has("gui_running") && g:buffergator_autoexpand_on_split && g:buffergator_split_size
+            if g:buffergator_viewport_split_policy =~ '[RL]'
+                let self.pre_expand_columns = &columns
+                let &columns += g:buffergator_split_size
+                let self.columns_expanded = &columns - self.pre_expand_columns
+            else
+                let self.columns_expanded = 0
+            endif
+            if g:buffergator_viewport_split_policy =~ '[TB]'
+                let self.pre_expand_lines = &lines
+                let &lines += g:buffergator_split_size
+                let self.lines_expanded = &lines - self.pre_expand_lines
+            else
+                let self.lines_expanded = 0
+            endif
+        endif
+    endfunction
+
+    function! l:catalog_viewer.contract_screen() dict
         if self.columns_expanded
                     \ && &columns - self.columns_expanded > 20
             let new_size  = &columns - self.columns_expanded
@@ -950,13 +938,14 @@ function! s:NewCatalogViewer()
             return 0
         endif
         let [l:jump_to_bufnum] = self.jump_map[l:cur_line].target
-        let l:cur_win_num = winnr()
+        let l:cur_tab_num = tabpagenr()
         if !a:keep_catalog
             call self.close()
         endif
         call self.visit_buffer(l:jump_to_bufnum, a:split_cmd)
-        if a:keep_catalog && a:refocus_catalog && winnr() != l:cur_win_num
-            execute(l:cur_win_num."wincmd w")
+        if a:keep_catalog && a:refocus_catalog
+            execute("tabnext " . l:cur_tab_num)
+            execute(bufwinnr(self.bufnum) . "wincmd w")
         endif
         call s:_buffergator_messenger.send_info(expand(bufname(l:jump_to_bufnum)))
     endfunction
