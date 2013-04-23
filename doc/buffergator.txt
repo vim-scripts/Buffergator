@@ -97,6 +97,8 @@ Catalog Management~
 
 cs                  Cycle through sort regimes.
 cd                  Cycle through display regimes.
+cw                  Cycle through window (viewport) split modes.
+cq                  Cycle through quit (autodismiss-on-select) policies.
 r                   Update (rebuild/refresh) index.
 d                   Delete the selected buffer.
 D                   Unconditionally delete the selected buffer.
@@ -118,10 +120,13 @@ true; otherwise it will be kept open.
 s                   Open the currently-selected buffer (or, if [count] is
                     given, buffer with number [count]), in a new vertical
                     split.
+<C-V>               As above (compatibility with Ctrl-P/Command-T)
 i                   Open the currently-selected buffer (or, if [count] is
                     given, buffer with number [count]), in a new split.
+<C-S>               As above (compatibility with Ctrl-P/Command-T)
 t                   Open the currently-selected buffer (or, if [count] is
                     given, buffer with number [count]), in a new tab page.
+<C-T>               As above (compatibility with Ctrl-P/Command-T)
 
 -------------------------------------------------------------------------------
 Preview Selected Buffer~
@@ -147,6 +152,27 @@ T                   Preview the currently-selected buffer (or, if [count] is
 <C-SPACE>, <C-P>    Go to the previous buffer entry (or, if [count] is
                     given, buffer with number [count]), and preview it in the
                     previous window.
+
+-------------------------------------------------------------------------------
+Open and Switch Focus to Selected Buffer~
+
+The following keys all open the currently-selected buffer and switch focus to
+it, keeping the catalog viewe open, regardless of the
+'g:buffergator_autodismiss_on_select' setting. If the key presses are preceded
+by a number, than the buffer with that number will be opened.
+
+po                  Open the currently-selected buffer (or, if [count] is
+                    given, buffer with number [count]), in the previous
+                    window, and switch focus to it, keeping the catalog
+                    viewer open.
+ps                  Open the currently-selected buffer (or, if [count] is
+                    given, buffer with number [count]), is a new vertical
+                    split, and switch focus to it, keeping the catalog
+                    viewer open.
+pi                  Open the currently-selected buffer (or, if [count] is
+                    given, buffer with number [count]), in a new split,
+                    and switch focus to it, keeping the catalog
+                    viewer open.
 
 -------------------------------------------------------------------------------
 Go to Existing Viewport Showing Buffer~
@@ -241,6 +267,16 @@ g:buffergator_split_size~
     Default: 40
     If greater than 0, this will be the width of the Buffergator window in any
     vertical splitting mode, or its height in any horizontal splitting mode.
+
+g:buffergator_vsplit_size~
+    Default: 40
+    If greater than 0, this will be the width of the Buffergator window in
+    any vertical splitting mode.
+
+g:buffergator_hplit_size~
+    Default: 20
+    If greater than 0, this will be the height of the Buffergator window in
+    any horizontal splitting mode.
 
 g:buffergator_sort_regime~
     Default: "bufnum"

@@ -41,17 +41,38 @@ endif
 if !exists("g:buffergator_autodismiss_on_select")
     let g:buffergator_autodismiss_on_select = 1
 endif
+if !exists("g:buffergator_autoupdate")
+    let g:buffergator_autoupdate = 0
+endif
 if !exists("g:buffergator_autoexpand_on_split")
     let g:buffergator_autoexpand_on_split = 1
 endif
-if !exists("g:buffergator_split_size")
-    let g:buffergator_split_size = 40
+if exists("g:buffergator_split_size")
+    if !exists("g:buffergator_vsplit_size")
+        let g:buffergator_vsplit_size = g:buffergator_split_size
+    endif
+    if !exists("g:h_buffergator_hsplit_size")
+        let g:buffergator_hsplit_size = g:buffergator_split_size
+    endif
+else
+    if !exists("g:buffergator_vsplit_size")
+        let g:buffergator_vsplit_size = 40
+    endif
+    if !exists("g:h_buffergator_hsplit_size")
+        let g:buffergator_hsplit_size = 20
+    endif
 endif
 if !exists("g:buffergator_sort_regime")
     let g:buffergator_sort_regime = "bufnum"
 endif
 if !exists("g:buffergator_display_regime")
     let g:buffergator_display_regime = "basename"
+endif
+if !exists("g:buffergator_show_full_directory_path")
+    let g:buffergator_show_full_directory_path = 1
+endif
+if !exists("g:buffergator_remap_arrow_keys")
+    let g:buffergator_remap_arrow_keys = 0
 endif
 " 1}}}
 
@@ -90,7 +111,24 @@ let s:buffergator_viewport_split_modes = {
             \ "B"   : "botright sbuffer",
             \ "b"   : "rightbelow sbuffer",
             \ }
+let s:buffergator_viewport_split_modes_cycle_list = ["L", "T", "R", "B"]
 " 2}}}
+
+" Buffer Status Symbols {{{3
+" ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+let s:buffergator_buffer_line_symbols = {
+    \ 'current'  :    ">",
+    \ 'modified' :    "+",
+    \ 'alternate':    "#",
+    \ }
+
+" dictionaries are not in any order, so store the order here
+let s:buffergator_buffer_line_symbols_order = [
+    \ 'current',
+    \ 'modified',
+    \ 'alternate',
+    \ ]
+" 3}}}
 
 " Catalog Sort Regimes {{{2
 " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -167,12 +205,12 @@ function! s:_format_truncated(str, max_len, trunc)
 endfunction
 
 " Pads/truncates text to fit a given width.
-" align: -1/0 = align left, 0 = no align, 1 = align right
+" align: -1 = align left, 0 = no align, 1 = align right
 " trunc: -1 = truncate left, 0 = no truncate, +1 = truncate right
 function! s:_format_filled(str, width, align, trunc)
     let l:prepped = a:str
     if a:trunc != 0
-        let l:prepped = s:Format_Truncate(a:str, a:width, a:trunc)
+        let l:prepped = s:_format_truncated(a:str, a:width, a:trunc)
     endif
     if len(l:prepped) < a:width
         if a:align > 0
@@ -253,6 +291,8 @@ function! s:_find_buffers_with_var(varname, expr)
         endif
         let l:bvar = getbufvar(l:bni, "")
         if empty(a:varname)
+            call add(l:results, l:bni)
+        elseif has_key(l:bvar, a:varname) && empty(a:expr)
             call add(l:results, l:bni)
         elseif has_key(l:bvar, a:varname) && l:bvar[a:varname] =~ a:expr
             call add(l:results, l:bni)
@@ -411,15 +451,31 @@ function! s:NewCatalogViewer(name, title)
     let l:catalog_viewer["is_zoomed"] = 0
     let l:catalog_viewer["columns_expanded"] = 0
     let l:catalog_viewer["lines_expanded"] = 0
+    let l:catalog_viewer["max_buffer_basename_len"] = 30
 
     " Initialize object state.
     let l:catalog_viewer["bufnum"] = -1
+
+    function! l:catalog_viewer.line_symbols(bufinfo) dict
+      let l:line_symbols = ""
+      " so we can control the order they are shown in
+      let l:noted_status = s:buffergator_buffer_line_symbols_order
+      for l:status in l:noted_status
+        if a:bufinfo['is_' . l:status]
+          let l:line_symbols .= s:buffergator_buffer_line_symbols[l:status]
+        else
+          let l:line_symbols .= " "
+        endif
+      endfor
+      return l:line_symbols
+    endfunction
 
     function! l:catalog_viewer.list_buffers() dict
         let bcat = []
         redir => buffers_output
         execute('silent ls')
         redir END
+        let self.max_buffer_basename_len = 0
         let l:buffers_output_rows = split(l:buffers_output, "\n")
         for l:buffers_output_row in l:buffers_output_rows
             let l:parts = matchlist(l:buffers_output_row, '^\s*\(\d\+\)\(.....\) "\(.*\)"')
@@ -477,8 +533,21 @@ function! s:NewCatalogViewer(name, title)
             endif
             let l:info["bufname"] = parts[3]
             let l:info["filepath"] = fnamemodify(l:info["bufname"], ":p")
+            " if g:buffergator_show_full_directory_path
+            "     let l:info["filepath"] = fnamemodify(l:info["bufname"], ":p")
+            " else
+            "     let l:info["filepath"] = fnamemodify(l:info["bufname"], ":.")
+            " endif
             let l:info["basename"] = fnamemodify(l:info["bufname"], ":t")
+            if len(l:info["basename"]) > self.max_buffer_basename_len
+                let self.max_buffer_basename_len = len(l:info["basename"])
+            endif
             let l:info["parentdir"] = fnamemodify(l:info["bufname"], ":p:h")
+            if g:buffergator_show_full_directory_path
+                let l:info["parentdir"] = fnamemodify(l:info["bufname"], ":p:h")
+            else
+                let l:info["parentdir"] = fnamemodify(l:info["bufname"], ":h")
+            endif
             let l:info["extension"] = fnamemodify(l:info["bufname"], ":e")
             call add(bcat, l:info)
             " let l:buffers_info[l:info[l:key]] = l:info
@@ -530,11 +599,11 @@ function! s:NewCatalogViewer(name, title)
             let self.split_mode = s:_get_split_mode()
             call self.expand_screen()
             execute("silent keepalt keepjumps " . self.split_mode . " " . self.bufnum)
-            if g:buffergator_viewport_split_policy =~ '[RrLl]' && g:buffergator_split_size
-                execute("vertical resize " . g:buffergator_split_size)
+            if g:buffergator_viewport_split_policy =~ '[RrLl]' && g:buffergator_vsplit_size
+                execute("vertical resize " . g:buffergator_vsplit_size)
                 setlocal winfixwidth
-            elseif g:buffergator_viewport_split_policy =~ '[TtBb]' && g:buffergator_split_size
-                execute("resize " . g:buffergator_split_size)
+            elseif g:buffergator_viewport_split_policy =~ '[TtBb]' && g:buffergator_hsplit_size
+                execute("resize " . g:buffergator_hsplit_size)
                 setlocal winfixheight
             endif
         endif
@@ -584,6 +653,7 @@ function! s:NewCatalogViewer(name, title)
         setlocal nonumber
         setlocal cursorline
         setlocal nospell
+        setlocal matchpairs=""
     endfunction
 
     " Sets buffer commands.
@@ -591,7 +661,6 @@ function! s:NewCatalogViewer(name, title)
         " command! -bang -nargs=* Bdfilter :call b:buffergator_catalog_viewer.set_filter('<bang>', <q-args>)
         augroup BuffergatorCatalogViewer
             au!
-            autocmd CursorHold,CursorHoldI,CursorMoved,CursorMovedI,BufEnter,BufLeave <buffer> call b:buffergator_catalog_viewer.highlight_current_line()
             autocmd BufLeave <buffer> let s:_buffergator_last_catalog_viewed = b:buffergator_catalog_viewer
         augroup END
     endfunction
@@ -642,17 +711,17 @@ function! s:NewCatalogViewer(name, title)
     endfunction
 
     function! l:catalog_viewer.expand_screen() dict
-        if has("gui_running") && g:buffergator_autoexpand_on_split && g:buffergator_split_size
-            if g:buffergator_viewport_split_policy =~ '[RL]'
+        if has("gui_running") && g:buffergator_autoexpand_on_split
+            if g:buffergator_viewport_split_policy =~ '[RL]' && g:buffergator_vsplit_size
                 let self.pre_expand_columns = &columns
-                let &columns += g:buffergator_split_size
+                let &columns += g:buffergator_vsplit_size
                 let self.columns_expanded = &columns - self.pre_expand_columns
             else
                 let self.columns_expanded = 0
             endif
-            if g:buffergator_viewport_split_policy =~ '[TB]'
+            if g:buffergator_viewport_split_policy =~ '[TB]' && g:buffergator_hsplit_size
                 let self.pre_expand_lines = &lines
-                let &lines += g:buffergator_split_size
+                let &lines += g:buffergator_hsplit_size
                 let self.lines_expanded = &lines - self.pre_expand_lines
             else
                 let self.lines_expanded = 0
@@ -680,12 +749,14 @@ function! s:NewCatalogViewer(name, title)
     endfunction
 
     function! l:catalog_viewer.highlight_current_line()
-        " if line(".") != b:buffergator_cur_line
-            let l:prev_line = b:buffergator_cur_line
-            let b:buffergator_cur_line = line(".")
-            3match none
-            exec '3match BuffergatorCurrentEntry /^\%'. b:buffergator_cur_line .'l.*/'
-        " endif
+        if self.current_buffer_index
+          execute ":" . self.current_buffer_index
+          if self.current_buffer_index < line('w0')
+            execute "silent! normal! zt"
+          elseif self.current_buffer_index > line('w$')
+            execute "silent! normal! zb"
+          endif
+        endif
     endfunction
 
     " Clears the buffer contents.
@@ -833,6 +904,23 @@ function! s:NewCatalogViewer(name, title)
         call s:_buffergator_messenger.send_info("sorted " . l:sort_desc)
     endfunction
 
+    " Cycles full/relative paths
+    function! l:catalog_viewer.cycle_directory_path_display() dict
+        if self.display_regime != "basename"
+            call s:_buffergator_messenger.send_info("cycling full/relative directory paths only makes sense when using the 'basename' display regime")
+            return
+        endif
+        if g:buffergator_show_full_directory_path
+            let g:buffergator_show_full_directory_path = 0
+            call s:_buffergator_messenger.send_info("displaying relative directory path")
+            call self.open(1)
+        else
+            let g:buffergator_show_full_directory_path = 1
+            call s:_buffergator_messenger.send_info("displaying full directory path")
+            call self.open(1)
+        endif
+    endfunction
+
     " Cycles display regime.
     function! l:catalog_viewer.cycle_display_regime() dict
         let l:cur_regime = index(s:buffergator_catalog_display_regimes, self.display_regime)
@@ -842,9 +930,33 @@ function! s:NewCatalogViewer(name, title)
         else
             let self.display_regime = s:buffergator_catalog_display_regimes[l:cur_regime]
         endif
+        let b:did_syntax = 0
         call self.open(1)
         let l:display_desc = get(s:buffergator_catalog_display_regime_desc, self.display_regime, ["??", "in unspecified order"])[1]
         call s:_buffergator_messenger.send_info("displaying " . l:display_desc)
+    endfunction
+
+    " Cycles window regime.
+    function! l:catalog_viewer.cycle_viewport_modes() dict
+        let l:cur_mode = index(s:buffergator_viewport_split_modes_cycle_list, g:buffergator_viewport_split_policy)
+        let l:cur_mode += 1
+        if l:cur_mode < 0 || l:cur_mode >= len(s:buffergator_viewport_split_modes_cycle_list)
+            let g:buffergator_viewport_split_policy = s:buffergator_viewport_split_modes_cycle_list[0]
+        else
+            let g:buffergator_viewport_split_policy = s:buffergator_viewport_split_modes_cycle_list[l:cur_mode]
+        endif
+        call s:ReopenBuffergator()
+    endfunction
+
+    " Cycles autodismiss modes
+    function! l:catalog_viewer.cycle_autodismiss_modes() dict
+        if (g:buffergator_autodismiss_on_select)
+            let g:buffergator_autodismiss_on_select = 0
+        call s:_buffergator_messenger.send_info("will stay open on selection (autodismiss-on-select: OFF)")
+        else
+            let g:buffergator_autodismiss_on_select = 1
+        call s:_buffergator_messenger.send_info("will close on selection (autodismiss-on-select: ON)")
+        endif
     endfunction
 
     " Rebuilds catalog.
@@ -861,10 +973,10 @@ function! s:NewCatalogViewer(name, title)
         if self.is_zoomed
             " if s:_is_full_height_window(l:bfwn) && !s:_is_full_width_window(l:bfwn)
             if g:buffergator_viewport_split_policy =~ '[RrLl]'
-                if !g:buffergator_split_size
+                if !g:buffergator_vsplit_size
                     let l:new_size = &columns / 3
                 else
-                    let l:new_size = g:buffergator_split_size
+                    let l:new_size = g:buffergator_vsplit_size
                 endif
                 if l:new_size > 0
                     execute("vertical resize " . string(l:new_size))
@@ -872,10 +984,10 @@ function! s:NewCatalogViewer(name, title)
                 let self.is_zoomed = 0
             " elseif s:_is_full_width_window(l:bfwn) && !s:_is_full_height_window(l:bfwn)
             elseif g:buffergator_viewport_split_policy =~ '[TtBb]'
-                if !g:buffergator_split_size
+                if !g:buffergator_hsplit_size
                     let l:new_size = &lines / 3
                 else
-                    let l:new_size = g:buffergator_split_size
+                    let l:new_size = g:buffergator_hsplit_size
                 endif
                 if l:new_size > 0
                     execute("resize " . string(l:new_size))
@@ -932,9 +1044,10 @@ endfunction
 function! s:NewBufferCatalogViewer()
 
     " initialize
-    let l:catalog_viewer = s:NewCatalogViewer("[[buffergator: buffers]]", "buffergator")
+    let l:catalog_viewer = s:NewCatalogViewer("[[buffergator-buffers]]", "buffergator")
     let l:catalog_viewer["calling_bufnum"] = -1
     let l:catalog_viewer["buffers_catalog"] = {}
+    let l:catalog_viewer["current_buffer_index"] = -1
 
     " Populates the buffer list
     function! l:catalog_viewer.update_buffers_info() dict
@@ -978,20 +1091,37 @@ function! s:NewBufferCatalogViewer()
 
     " Sets buffer syntax.
     function! l:catalog_viewer.setup_buffer_syntax() dict
-        if has("syntax")
-            syn region BuffergatorModifiedFileLine start='^\[\s\{-}.\{-1,}\s\{-}\] + ' keepend oneline end='$'
-            syn region BuffergatorUnmodifiedFileLine start='^\[\s\{-}.\{-1,}\s\{-}\]   ' keepend oneline end='$'
-            syn match BuffergatorModifiedFileSyntaxKey '^\zs\[\s\{-}.\{-1,}\s\{-}\]\ze' containedin=BuffergatorModifiedFileLine nextgroup=BuffergatorModifiedFilename
-            syn match BuffergatorUnmodifiedFileSyntaxKey '^\zs\[\s\{-}.\{-1,}\s\{-}\]\ze' containedin=BuffergatorUnmodifiedFileLine nextgroup=BuffergatorUnmodifiedFilename
-            syn match BuffergatorModifiedFilename ' + .\+$' containedin=BuffergatorModifiedFilenameEntry
-            syn match BuffergatorUnmodifiedFilename '   .\+$' containedin=BuffergatorUnmodifiedFileLine
-            highlight! link BuffergatorModifiedFileSyntaxKey   LineNr
-            highlight! link BuffergatorUnmodifiedFileSyntaxKey   LineNr
-            highlight! link BuffergatorModifiedFileFlag   WarningMsg
-            highlight! link BuffergatorModifiedFilename   WarningMsg
-            highlight! def BuffergatorCurrentEntry gui=reverse cterm=reverse term=reverse
+        if has("syntax") && (!exists('b:did_syntax') || !b:did_syntax)
+            syntax clear
+            syn region BuffergatorFileLine start='^' keepend oneline end='$'
+            syn match BuffergatorBufferNr '^\[.\{3\}\]' containedin=BuffergatorFileLine
+            let l:line_symbols = values(s:buffergator_buffer_line_symbols)
+            execute "syn match BuffergatorSymbol '[" . join(l:line_symbols,"") . "]' containedin=BuffergatorFileLine"
+            for l:buffer_status_index in range(0, len(s:buffergator_buffer_line_symbols_order) - 1)
+              let l:name = s:buffergator_buffer_line_symbols_order[l:buffer_status_index]
+              let l:line_symbol = s:buffergator_buffer_line_symbols[l:name]
+              let l:pattern = repeat('.', l:buffer_status_index)
+              let l:pattern .= l:line_symbol
+              let l:pattern .= repeat('.', len(s:buffergator_buffer_line_symbols_order) - (l:buffer_status_index + 1))
+              let l:pattern .= '\s.\{-}/'
+              let l:pattern_name = "Buffergator" . toupper(l:name[0]) . tolower(l:name[1:]) . "Entry"
+              let l:element = [
+                \ "syn match",
+                \ l:pattern_name, "'" . l:pattern . "'me=e-1",
+                \ "containedin=BuffergatorFileLine",
+                \ "contains=BuffergatorSymbol"
+                \ ]
+              let l:syntax_cmd = join(l:element," ")
+              execute l:syntax_cmd
+            endfor
+            highlight link BuffergatorSymbol Constant
+            " highlight link BuffergatorAlternateEntry Function
+            " highlight link BuffergatorModifiedEntry String
+            " highlight link BuffergatorCurrentEntry Keyword
+            highlight link BuffergatorBufferNr LineNr
+            let b:did_syntax = 1
         endif
-    endfunction
+      endfunction
 
     " Sets buffer key maps.
     function! l:catalog_viewer.setup_buffer_keymaps() dict
@@ -1003,6 +1133,10 @@ function! s:NewBufferCatalogViewer()
             """" Catalog management
             noremap <buffer> <silent> cs          :call b:buffergator_catalog_viewer.cycle_sort_regime()<CR>
             noremap <buffer> <silent> cd          :call b:buffergator_catalog_viewer.cycle_display_regime()<CR>
+            noremap <buffer> <silent> cp          :call b:buffergator_catalog_viewer.cycle_directory_path_display()<CR>
+            noremap <buffer> <silent> cw          :call b:buffergator_catalog_viewer.cycle_viewport_modes()<CR>
+            noremap <buffer> <silent> cq          :call b:buffergator_catalog_viewer.cycle_autodismiss_modes()<CR>
+            noremap <buffer> <silent> cc          <NOP>
             noremap <buffer> <silent> r           :call b:buffergator_catalog_viewer.rebuild_catalog()<CR>
             noremap <buffer> <silent> q           :call b:buffergator_catalog_viewer.close(1)<CR>
             noremap <buffer> <silent> d           :<C-U>call b:buffergator_catalog_viewer.delete_target(0, 0)<CR>
@@ -1014,8 +1148,17 @@ function! s:NewBufferCatalogViewer()
             noremap <buffer> <silent> <CR>        :<C-U>call b:buffergator_catalog_viewer.visit_target(!g:buffergator_autodismiss_on_select, 0, "")<CR>
             noremap <buffer> <silent> o           :<C-U>call b:buffergator_catalog_viewer.visit_target(!g:buffergator_autodismiss_on_select, 0, "")<CR>
             noremap <buffer> <silent> s           :<C-U>call b:buffergator_catalog_viewer.visit_target(!g:buffergator_autodismiss_on_select, 0, "vert sb")<CR>
+            noremap <buffer> <silent> <C-v>       :<C-U>call b:buffergator_catalog_viewer.visit_target(!g:buffergator_autodismiss_on_select, 0, "vert sb")<CR>
             noremap <buffer> <silent> i           :<C-U>call b:buffergator_catalog_viewer.visit_target(!g:buffergator_autodismiss_on_select, 0, "sb")<CR>
+            noremap <buffer> <silent> <C-s>       :<C-U>call b:buffergator_catalog_viewer.visit_target(!g:buffergator_autodismiss_on_select, 0, "sb")<CR>
             noremap <buffer> <silent> t           :<C-U>call b:buffergator_catalog_viewer.visit_target(!g:buffergator_autodismiss_on_select, 0, "tab sb")<CR>
+            noremap <buffer> <silent> <C-t>       :<C-U>call b:buffergator_catalog_viewer.visit_target(!g:buffergator_autodismiss_on_select, 0, "tab sb")<CR>
+
+            """"" Selection: show target and switch focus, preserving the catalog regardless of the autodismiss setting
+            noremap <buffer> <silent> po          :<C-U>call b:buffergator_catalog_viewer.visit_target(1, 0, "")<CR>
+            noremap <buffer> <silent> ps          :<C-U>call b:buffergator_catalog_viewer.visit_target(1, 0, "vert sb")<CR>
+            noremap <buffer> <silent> pi          :<C-U>call b:buffergator_catalog_viewer.visit_target(1, 0, "sb")<CR>
+            noremap <buffer> <silent> pt          :<C-U>call b:buffergator_catalog_viewer.visit_target(1, 0, "tab sb")<CR>
 
             """"" Preview: show target , keeping focus on catalog
             noremap <buffer> <silent> O           :<C-U>call b:buffergator_catalog_viewer.visit_target(1, 1, "")<CR>
@@ -1082,6 +1225,13 @@ function! s:NewBufferCatalogViewer()
         " other
         noremap <buffer> <silent> A           :call b:buffergator_catalog_viewer.toggle_zoom()<CR>
 
+        if g:buffergator_remap_arrow_keys
+            noremap <buffer> <UP>     <UP>
+            noremap <buffer> <DOWN>   <DOWN>
+            noremap <buffer> <LEFT>   <UP>
+            noremap <buffer> <RIGHT>  <DOWN>
+        endif
+
     endfunction
 
     " Populates the buffer with the catalog index.
@@ -1096,15 +1246,19 @@ function! s:NewBufferCatalogViewer()
             if self.calling_bufnum == l:bufinfo.bufnum
                 let l:initial_line = line("$")
             endif
-            let l:bufnum_str = s:_format_filled(l:bufinfo.bufnum, 3, 1, 0)
-            let l:line = "[" . l:bufnum_str . "] "
-            if l:bufinfo.is_modified
-                let l:line .= "+ "
-            else
-                let l:line .= "  "
+
+            if l:bufinfo.is_current
+              let self.current_buffer_index = line("$")
             endif
+
+            let l:bufnum_str = s:_format_filled(l:bufinfo.bufnum, 3, 1, 0)
+            let l:line = "[" . l:bufnum_str . "]"
+
+            let l:line .= s:_format_filled(self.line_symbols(l:bufinfo),4,-1,0)
+
             if self.display_regime == "basename"
-                let l:line .= s:_format_align_left(l:bufinfo.basename, 30, " ")
+                let l:line .= s:_format_align_left(l:bufinfo.basename, self.max_buffer_basename_len, " ")
+                let l:line .= "  "
                 let l:line .= l:bufinfo.parentdir
             elseif self.display_regime == "filepath"
                 let l:line .= l:bufinfo.filepath
@@ -1252,25 +1406,58 @@ function! s:NewBufferCatalogViewer()
         let l:cur_win_num = winnr()
 
         " find alternate buffer to switch to
+        " let l:alternate_buffer = -1
+        " for abufnum in range(l:bufnum_to_delete, 1, -1)
+        "     if bufexists(abufnum) && buflisted(abufnum) && abufnum != l:bufnum_to_delete
+        "         let l:alternate_buffer = abufnum
+        "         break
+        "     endif
+        " endfor
+        " if l:alternate_buffer == -1 && bufnr("$") > l:bufnum_to_delete
+        "     for abufnum in range(l:bufnum_to_delete+1, bufnr("$"))
+        "         if bufexists(abufnum) && buflisted(abufnum) && abufnum != l:bufnum_to_delete
+        "             let l:alternate_buffer = abufnum
+        "             break
+        "         endif
+        "     endfor
+        " endif
+        " if l:alternate_buffer == -1
+        "     call s:_buffergator_messenger.send_warning("Cowardly refusing to delete last listed buffer")
+        "     return 0
+        " endif
+
+        call self.update_buffers_info()
+        if len(self.buffers_catalog) == 1
+            if self.buffers_catalog[0].bufnum == l:bufnum_to_delete
+                call s:_buffergator_messenger.send_warning("Cowardly refusing to delete last listed buffer")
+                return 0
+            else
+                call s:_buffergator_messenger.send_warning("Buffer not found")
+                return 0
+            endif
+        endif
         let l:alternate_buffer = -1
-        for abufnum in range(l:bufnum_to_delete, 1, -1)
-            if bufexists(abufnum) && buflisted(abufnum) && abufnum != l:bufnum_to_delete
-                let l:alternate_buffer = abufnum
+        for xbi in range(0, len(self.buffers_catalog)-1)
+            let curbf = self.buffers_catalog[xbi].bufnum
+            if curbf == l:bufnum_to_delete
+                if xbi == len(self.buffers_catalog)-1
+                    if xbi > 0
+                        let l:alternate_buffer = self.buffers_catalog[xbi-1].bufnum
+                    else
+                        call s:_buffergator_messenger.send_warning("Cowardly refusing to delete last listed buffer")
+                        return 0
+                    endif
+                else
+                    if xbi+1 < len(self.buffers_catalog)
+                        let l:alternate_buffer = self.buffers_catalog[xbi+1].bufnum
+                    else
+                        call s:_buffergator_messenger.send_warning("Cowardly refusing to delete last listed buffer")
+                        return 0
+                    endif
+                endif
                 break
             endif
         endfor
-        if l:alternate_buffer == -1 && bufnr("$") > l:bufnum_to_delete
-            for abufnum in range(l:bufnum_to_delete+1, bufnr("$"))
-                if bufexists(abufnum) && buflisted(abufnum) && abufnum != l:bufnum_to_delete
-                    let l:alternate_buffer = abufnum
-                    break
-                endif
-            endfor
-        endif
-        if l:alternate_buffer == -1
-            call s:_buffergator_messenger.send_warning("Cowardly refusing to delete last listed buffer")
-            return 0
-        endif
 
         let l:changed_win_bufs = []
         for winnum in range(1, winnr('$'))
@@ -1366,7 +1553,7 @@ endfunction
 function! s:NewTabCatalogViewer()
 
     " initialize
-    let l:catalog_viewer = s:NewCatalogViewer("[[buffergator: tabs]]", "buffergator")
+    let l:catalog_viewer = s:NewCatalogViewer("[[buffergator-tabs]]", "buffergator")
     let l:catalog_viewer["tab_catalog"] = []
 
     " Opens the buffer for viewing, creating it if needed.
@@ -1449,7 +1636,7 @@ function! s:NewTabCatalogViewer()
     endfunction
 
     function! l:catalog_viewer.setup_buffer_syntax() dict
-        if has("syntax")
+        if has("syntax") && !(exists('b:did_syntax'))
             syn match BuffergatorTabPageLine '^TAB PAGE \d\+\:$'
             " syn match BuffergatorTabPageLineStart '^==== Tab Page \[' nextgroup=BuffergatorTabPageNumber
             " syn match BuffergatorTabPageNumber '\d\+' nextgroup=BuffergatorTabPageLineEnd
@@ -1470,7 +1657,8 @@ function! s:NewTabCatalogViewer()
             " highlight! link BuffergatorTabPageLineStart Title
             " highlight! link BuffergatorTabPageNumber Special
             " highlight! link BuffergatorTabPageLineEnd Title
-            highlight! def BuffergatorCurrentEntry gui=reverse cterm=reverse term=reverse
+            highlight! link BuffergatorCurrentEntry CursorLine
+            let b:did_syntax = 1
         endif
     endfunction
 
@@ -1574,17 +1762,78 @@ let s:_catalog_viewer = s:NewBufferCatalogViewer()
 let s:_tab_catalog_viewer = s:NewTabCatalogViewer()
 
 " Autocommands that update the most recenly used buffers
-autocmd BufRead * call s:_update_mru(expand('<abuf>'))
-autocmd BufNewFile * call s:_update_mru(expand('<abuf>'))
-autocmd BufWritePost * call s:_update_mru(expand('<abuf>'))
+augroup BufferGatorMRU
+  au!
+  autocmd BufEnter * call s:_update_mru(expand('<abuf>'))
+  autocmd BufRead * call s:_update_mru(expand('<abuf>'))
+  autocmd BufNewFile * call s:_update_mru(expand('<abuf>'))
+  autocmd BufWritePost * call s:_update_mru(expand('<abuf>'))
+augroup NONE
+
+augroup BufferGatorAuto
+  au!
+  autocmd BufDelete * call <SID>UpdateBuffergator('delete',expand('<abuf>'))
+  autocmd BufEnter * call <SID>UpdateBuffergator('enter',expand('<abuf>'))
+  autocmd BufWritePost * call <SID>UpdateBuffergator('writepost',expand('<abuf>'))
+augroup NONE
 " 1}}}
 
 " Functions Supporting User Commands {{{1
 " ==============================================================================
 
 function! s:OpenBuffergator()
-    call s:_tab_catalog_viewer.close(1)
+    call s:_catalog_viewer.close(0)
     call s:_catalog_viewer.open()
+endfunction
+
+function! s:ReopenBuffergator()
+    call s:_catalog_viewer.close(1)
+    call s:_catalog_viewer.open()
+endfunction
+
+function! s:UpdateBuffergator(event, affected)
+    if !(g:buffergator_autoupdate)
+      return
+    endif
+
+    let l:calling = bufnr("%")
+    let l:self_call = 0
+    let l:buffergators = s:_find_buffers_with_var("is_buffergator_buffer",1)
+    call s:_catalog_viewer.update_buffers_info()
+
+    " BufDelete is the last Autocommand executed, but it's done BEFORE the
+    " buffer is actually deleted. - preemptively remove the buffer from
+    " the list if this is a delete event
+    if a:event == "delete"
+      call filter(s:_catalog_viewer.buffers_catalog,'v:val["bufnum"] != ' . a:affected)
+    endif
+
+    for l:gator in l:buffergators
+      if bufwinnr(l:gator) > 0
+        if l:calling != l:gator
+          execute bufwinnr(l:gator) . "wincmd w"
+        else
+          let l:self_call = 1
+        endif
+
+        " do not execute for tab view catalogs
+        if has_key(b:buffergator_catalog_viewer, "tab_catalog")
+          continue
+        endif
+
+        call s:_catalog_viewer.render_buffer()
+
+        if !l:self_call
+          call s:_catalog_viewer.highlight_current_line()
+        endif
+      endif
+    endfor
+
+    if exists("b:is_buffergator_buffer") && !l:self_call
+      execute "wincmd p"
+    elseif a:event == 'delete' && !l:self_call
+      execute "wincmd ^"
+    endif
 endfunction
 
 function! s:OpenBuffergatorTabs()
@@ -1602,9 +1851,12 @@ function! s:ToggleBuffergator()
     call s:_catalog_viewer.toggle()
 endfunction
 
+function! s:CloseBuffergatorTabs()
+    call s:_tab_catalog_viewer.close(1)
+endfunction
+
 function! s:ToggleBuffergatorTabs()
     call s:_catalog_viewer.close(1)
-    call s:_tab_catalog_viewer.toggle()
 endfunction
 
 " 1}}}
@@ -1617,6 +1869,7 @@ command!  BuffergatorOpen        :call <SID>OpenBuffergator()
 command!  BuffergatorTabsToggle  :call <SID>ToggleBuffergatorTabs()
 command!  BuffergatorTabsOpen    :call <SID>OpenBuffergatorTabs()
 command!  BuffergatorTabsClose   :call <SID>CloseBuffergatorTabs()
+command!  BuffergatorUpdate      :call <SID>UpdateBuffergator('',-1)
 
 if !exists('g:buffergator_suppress_keymaps') || !g:buffergator_suppress_keymaps
     " nnoremap <silent> <Leader><Leader> :BuffergatorToggle<CR>
