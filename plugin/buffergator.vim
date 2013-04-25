@@ -74,6 +74,9 @@ endif
 if !exists("g:buffergator_remap_arrow_keys")
     let g:buffergator_remap_arrow_keys = 0
 endif
+if !exists("g:buffergator_mru_cycle_loop")
+    let g:buffergator_mru_cycle_loop = 1
+endif
 " 1}}}
 
 " Script Data and Variables {{{1
@@ -156,6 +159,7 @@ let s:buffergator_default_display_regime = "basename"
 
 " MRU {{{2
 " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+let s:buffergator_track_mru = 1
 let s:buffergator_mru = []
 " 2}}}
 " 1}}}
@@ -347,12 +351,52 @@ endfunction!
 
 " Moves (or adds) the given buffer number to the top of the list
 function! s:_update_mru(acmd_bufnr)
-    let bnum = a:acmd_bufnr + 0
-    if bnum == 0
-        return
+    if s:buffergator_track_mru
+        let bnum = a:acmd_bufnr + 0
+        if bnum == 0 || !buflisted(bnum)
+            return
+        endif
+        call filter(s:buffergator_mru, 'v:val !=# bnum')
+        call insert(s:buffergator_mru, bnum, 0)
     endif
-    call filter(s:buffergator_mru, 'v:val !=# bnum')
-    call insert(s:buffergator_mru, bnum, 0)
+endfunction
+
+function! s:_find_mru_bufnr(dir)
+    let l:cur_buf_idx = index(s:buffergator_mru, bufnr("%"))
+    if len(s:buffergator_mru) < 2
+        return bufnr("%")
+    endif
+    if l:cur_buf_idx < 0
+        let l:target_buf_idx = 0
+    else
+        if a:dir < 0
+            let l:target_buf_idx = l:cur_buf_idx + 1 " deeper in list = older
+        else
+            let l:target_buf_idx = l:cur_buf_idx - 1 " up list = newer
+        endif
+    endif
+    if l:target_buf_idx < 0
+        if g:buffergator_mru_cycle_loop
+            let l:target_buf_idx = len(s:buffergator_mru) - 1
+        else
+            call s:_buffergator_messenger.send_info("already at most recent buffer")
+            return -1
+        endif
+    elseif l:target_buf_idx >= len(s:buffergator_mru)
+        if g:buffergator_mru_cycle_loop
+            let l:target_buf_idx = 0
+        else
+            call s:_buffergator_messenger.send_info("already at oldest buffer")
+            return -1
+        endif
+    endif
+    let l:target_bufnr = s:buffergator_mru[l:target_buf_idx]
+    if !bufexists(l:target_bufnr)
+        call remove(s:buffergator_mru, l:target_buf_idx)
+        return s:_find_mru_bufnr(a:dir)
+    else
+        return l:target_bufnr
+    endif
 endfunction
 
 " 2}}}
@@ -1228,8 +1272,6 @@ function! s:NewBufferCatalogViewer()
         if g:buffergator_remap_arrow_keys
             noremap <buffer> <UP>     <UP>
             noremap <buffer> <DOWN>   <DOWN>
-            noremap <buffer> <LEFT>   <UP>
-            noremap <buffer> <RIGHT>  <DOWN>
         endif
 
     endfunction
@@ -1781,6 +1823,40 @@ augroup NONE
 " Functions Supporting User Commands {{{1
 " ==============================================================================
 
+function! s:BuffergatorCycleMru(dir)
+    if len(s:buffergator_mru) < 2
+        if g:buffergator_mru_cycle_loop
+            for l:bni in range(bufnr("$"), 1, -1)
+                if buflisted(l:bni)
+                    call add(s:buffergator_mru, l:bni)
+                endif
+            endfor
+            call s:_update_mru(bufnr("%"))
+        else
+            return
+        endif
+    endif
+    if len(s:buffergator_mru) < 2
+        call s:_buffergator_messenger.send_info("only one buffer available")
+        return
+    endif
+    let l:target_buf = s:_find_mru_bufnr(a:dir)
+    if l:target_buf > 0
+        call s:_buffergator_messenger.send_info("returning to: " . bufname(l:target_buf))
+        let s:buffergator_track_mru = 0
+        execute "silent keepalt keepjumps buffer " . l:target_buf
+        let s:buffergator_track_mru = 1
+    else
+        " call s:_buffergator_messenger.send_info("found: " . l:target_buf . " : " . bufname(l:target_buf))
+        call s:_buffergator_messenger.send_info("no previous/next existing buffers available")
+    endif
+endfunction
+
+function! s:OpenBuffergator()
+    call s:_catalog_viewer.close(0)
+    call s:_catalog_viewer.open()
+endfunction
+
 function! s:OpenBuffergator()
     call s:_catalog_viewer.close(0)
     call s:_catalog_viewer.open()
@@ -1870,6 +1946,8 @@ command!  BuffergatorTabsToggle  :call <SID>ToggleBuffergatorTabs()
 command!  BuffergatorTabsOpen    :call <SID>OpenBuffergatorTabs()
 command!  BuffergatorTabsClose   :call <SID>CloseBuffergatorTabs()
 command!  BuffergatorUpdate      :call <SID>UpdateBuffergator('',-1)
+command!  BuffergatorMruCyclePrev :call <SID>BuffergatorCycleMru(-1)
+command!  BuffergatorMruCycleNext :call <SID>BuffergatorCycleMru(1)
 
 if !exists('g:buffergator_suppress_keymaps') || !g:buffergator_suppress_keymaps
     " nnoremap <silent> <Leader><Leader> :BuffergatorToggle<CR>
@@ -1877,6 +1955,12 @@ if !exists('g:buffergator_suppress_keymaps') || !g:buffergator_suppress_keymaps
     nnoremap <silent> <Leader>B :BuffergatorClose<CR>
     nnoremap <silent> <Leader>t :BuffergatorTabsOpen<CR>
     nnoremap <silent> <Leader>T :BuffergatorTabsClose<CR>
+    if !exists('g:buffergator_suppress_mru_switching') || !g:buffergator_suppress_mru_switching
+        nnoremap <silent> <M-b> :BuffergatorMruCyclePrev<CR>
+        nnoremap <silent> <M-S-b> :BuffergatorMruCycleNext<CR>
+        nnoremap <silent> [b :BuffergatorMruCyclePrev<CR>
+        nnoremap <silent> ]b :BuffergatorMruCycleNext<CR>
+    endif
 endif
 
 " 1}}}
